@@ -16,7 +16,8 @@ RUN apk add --no-cache \
     oniguruma-dev \
     libxml2-dev \
     icu-dev \
-    ffmpeg
+    ffmpeg \
+    gmp-dev
 
 # Install PHP extensions
 RUN docker-php-ext-configure gd \
@@ -32,7 +33,10 @@ RUN docker-php-ext-configure gd \
         gd \
         intl \
         xml \
-        opcache
+        opcache \
+        ftp \
+        gmp
+
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
