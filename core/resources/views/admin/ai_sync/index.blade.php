@@ -182,8 +182,42 @@
         </div>
 
         <!-- Sync Log / Live Tracker Column -->
-        <div class="col-xl-6">
-            <div class="card box--shadow2 h-100 d-flex flex-column">
+        <div class="col-xl-6 d-flex flex-column gap-30">
+            <!-- Active Progress Tracker Card -->
+            <div class="card box--shadow2" id="progressCard" style="display: none;">
+                <div class="card-header bg--primary">
+                    <h5 class="text-white mb-0" id="progressTitle"><i class="las la-spinner la-spin"></i> @lang('Active Task Progress')</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="fw-bold" id="progressStatusText">@lang('Initializing...')</span>
+                        <span class="fw-bold" id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress" style="height: 20px; border-radius: 4px; background-color: #e9ecef; overflow: hidden;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%" id="progressBar"></div>
+                    </div>
+                    <div class="row mt-3 text-center">
+                        <div class="col-4">
+                            <h6 class="mb-0 fw-bold" id="progressScanned">0</h6>
+                            <small class="text-muted">@lang('Processed')</small>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="mb-0 text-success fw-bold" id="progressSuccessCount">0</h6>
+                            <small class="text-muted">@lang('Success')</small>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="mb-0 text-danger fw-bold" id="progressSkippedCount">0</h6>
+                            <small class="text-muted">@lang('Skipped')</small>
+                        </div>
+                    </div>
+                    <div class="mt-3 p-2 bg-light rounded text-center border">
+                        <span class="text-muted" style="font-size: 13px;">@lang('Current Item:') <strong id="progressCurrentItem" class="text-dark">-</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Logs Card -->
+            <div class="card box--shadow2 flex-grow-1 d-flex flex-column">
                 <div class="card-header bg--dark d-flex justify-content-between align-items-center">
                     <h5 class="text-white mb-0"><i class="las la-list-alt"></i> @lang('Sync Logs & Tracker')</h5>
                     <form action="{{ route('admin.ai.sync.clearLogs') }}" method="POST">
@@ -224,5 +258,136 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+        .gap-30 {
+            gap: 30px;
+        }
     </style>
 @endpush
+
+@push('script')
+    <script>
+        (function($) {
+            "use strict";
+
+            var pollInterval = null;
+
+            function startProgressPolling() {
+                if (pollInterval) clearInterval(pollInterval);
+                
+                pollInterval = setInterval(function() {
+                    $.get('{{ route("admin.ai.sync.progress") }}', function(data) {
+                        // Update Logs Tracker always
+                        if (data.logs) {
+                            var logPre = $('pre.flex-grow-1');
+                            logPre.text(data.logs);
+                            // Auto scroll to bottom
+                            logPre.scrollTop(logPre[0].scrollHeight);
+                        }
+                        
+                        var activeTask = null;
+                        var taskName = '';
+                        
+                        if (data.sync && data.sync.status === 'syncing') {
+                            activeTask = data.sync;
+                            taskName = "@lang('IMDb Movie Syncing')";
+                        } else if (data.repair && data.repair.status === 'repairing') {
+                            activeTask = data.repair;
+                            taskName = "@lang('Poster Diagnostics & Repair')";
+                        } else if (data.sync && data.sync.status === 'completed') {
+                            activeTask = data.sync;
+                            taskName = "@lang('IMDb Sync Completed')";
+                            clearInterval(pollInterval);
+                            $('#progressBar').removeClass('bg-danger bg-warning').addClass('bg-success').css('width', '100%');
+                            $('#progressPercent').text('100%');
+                            $('#progressStatusText').text("@lang('Completed')");
+                            $('#progressCard').delay(5000).slideUp();
+                        } else if (data.repair && data.repair.status === 'completed') {
+                            activeTask = data.repair;
+                            taskName = "@lang('Poster Repair Completed')";
+                            clearInterval(pollInterval);
+                            $('#progressBar').removeClass('bg-danger bg-warning').addClass('bg-success').css('width', '100%');
+                            $('#progressPercent').text('100%');
+                            $('#progressStatusText').text("@lang('Completed')");
+                            $('#progressCard').delay(5000).slideUp();
+                        } else if (data.sync && data.sync.status === 'failed') {
+                            activeTask = data.sync;
+                            taskName = "@lang('IMDb Sync Failed')";
+                            clearInterval(pollInterval);
+                            $('#progressBar').removeClass('bg-success bg-warning').addClass('bg-danger');
+                            $('#progressStatusText').text("@lang('Failed')");
+                        } else if (data.repair && data.repair.status === 'failed') {
+                            activeTask = data.repair;
+                            taskName = "@lang('Poster Repair Failed')";
+                            clearInterval(pollInterval);
+                            $('#progressBar').removeClass('bg-success bg-warning').addClass('bg-danger');
+                            $('#progressStatusText').text("@lang('Failed')");
+                        }
+                        
+                        if (activeTask) {
+                            $('#progressCard').slideDown();
+                            $('#progressTitle').html('<i class="las la-cog la-spin"></i> ' + taskName);
+                            
+                            var total = parseInt(activeTask.total) || 1;
+                            var current = parseInt(activeTask.current) || 0;
+                            var percent = Math.min(100, Math.round((current / total) * 100));
+                            
+                            $('#progressBar').css('width', percent + '%');
+                            $('#progressPercent').text(percent + '%');
+                            $('#progressScanned').text(current + ' / ' + total);
+                            $('#progressSuccessCount').text(activeTask.success_count || 0);
+                            $('#progressSkippedCount').text(activeTask.skipped_count || 0);
+                            $('#progressCurrentItem').text(activeTask.current_item || '-');
+                        }
+                    });
+                }, 1500);
+            }
+
+            // Handle manual sync and repair form submits using AJAX
+            $('form[action*="trigger-sync"], form[action*="trigger-repair"]').on('submit', function(e) {
+                e.preventDefault();
+                
+                var form = $(this);
+                var url = form.attr('action');
+                var data = form.serialize();
+                var submitBtn = form.find('button[type="submit"]');
+                var originalHtml = submitBtn.html();
+                
+                submitBtn.prop('disabled', true).html('<i class="las la-spinner la-spin"></i> Processing...');
+                
+                // Show progress card immediately in initializing state
+                $('#progressCard').slideDown();
+                $('#progressTitle').html('<i class="las la-spinner la-spin"></i> @lang("Starting Task")');
+                $('#progressStatusText').text("@lang('Initializing...')");
+                $('#progressBar').css('width', '0%').removeClass('bg-danger bg-success');
+                $('#progressPercent').text('0%');
+                $('#progressScanned').text('0');
+                $('#progressSuccessCount').text('0');
+                $('#progressSkippedCount').text('0');
+                $('#progressCurrentItem').text("@lang('Starting...')");
+                
+                // Start polling
+                startProgressPolling();
+                
+                $.post(url, data)
+                    .done(function(response) {
+                        submitBtn.prop('disabled', false).html(originalHtml);
+                    })
+                    .fail(function(xhr) {
+                        submitBtn.prop('disabled', false).html(originalHtml);
+                    });
+            });
+
+            // Auto-scroll logs to bottom on page load
+            $(document).ready(function() {
+                var logPre = $('pre.flex-grow-1');
+                if (logPre.length) {
+                    logPre.scrollTop(logPre[0].scrollHeight);
+                }
+                
+                // Check if there is an active job running on load
+                startProgressPolling();
+            });
+        })(jQuery);
+    </script>
+@endpush
+

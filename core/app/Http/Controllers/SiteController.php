@@ -226,10 +226,6 @@ class SiteController extends Controller {
             $item = Item::active()->where('slug', $slug)->with('video.subtitles')->firstOrFail();
         }
 
-        if ($item->item_type == Status::SINGLE_ITEM && $item->imdb_id) {
-            return redirect("https://www.playimdb.com/title/{$item->imdb_id}/");
-        }
-
         $item->increment('view');
 
         $isAuthenticate    = auth()->check() ? Status::YES : Status::NO;

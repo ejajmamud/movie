@@ -13,6 +13,11 @@ use App\Lib\CurlRequest;
 
 class SyncMovies extends Command
 {
+    private $progressCurrent = 0;
+    private $progressTotal = 0;
+    private $progressSuccess = 0;
+    private $progressSkipped = 0;
+
     /**
      * The name and signature of the console command.
      *
@@ -35,101 +40,157 @@ class SyncMovies extends Command
         $limit = (int) $this->option('limit');
         $type = $this->option('type');
         
-        $general = gs(); // Get general settings
-        $apiKey = $general->tmdb_api;
+        $totalToProcess = ($type === 'all') ? ($limit * 2) : $limit;
         
-        $movieCategory = Category::where('name', 'Movie')->first();
-        if (!$movieCategory) {
-            $movieCategory = new Category();
-            $movieCategory->name = 'Movie';
-            $movieCategory->status = 1;
-            $movieCategory->save();
-        }
+        $this->progressTotal = $totalToProcess;
+        $this->progressCurrent = 0;
+        $this->progressSuccess = 0;
+        $this->progressSkipped = 0;
+        
+        $this->updateProgress(0, $this->progressTotal, 0, 0, 'Initializing sync...', 'syncing');
 
-        $seriesCategory = Category::where('name', 'TV Series')->first();
-        if (!$seriesCategory) {
-            $seriesCategory = new Category();
-            $seriesCategory->name = 'TV Series';
-            $seriesCategory->status = 1;
-            $seriesCategory->save();
-        }
-
-        $portraitPath = base_path('../assets/images/item/portrait/');
-        $landscapePath = base_path('../assets/images/item/landscape/');
-
-        @mkdir($portraitPath, 0755, true);
-        @mkdir($landscapePath, 0755, true);
-
-        if (!$apiKey || $apiKey == '---------------------') {
-            $this->info('TMDB API Key is not configured in General Settings. Using keyless IMDb API (api.imdbapi.dev) for syncing...');
-            return $this->handleImdbSync($limit, $type, $movieCategory->id, $seriesCategory->id, $portraitPath, $landscapePath);
-        }
-
-        $this->info('Starting TMDB sync...');
-
-        // Sync Movies
-        if ($type === 'movie' || $type === 'all') {
-            $this->info('Fetching trending movies...');
-            $url = "https://api.themoviedb.org/3/trending/movie/week?api_key={$apiKey}";
-            $response = CurlRequest::curlContent($url);
-            $data = json_decode($response);
-
-            if (isset($data->results)) {
-                $count = 0;
-                foreach ($data->results as $result) {
-                    if ($count >= $limit) break;
-                    
-                    // Check if item already exists by title
-                    $title = $result->title ?? $result->original_title;
-                    $exists = Item::where('title', $title)->exists();
-                    
-                    if (!$exists) {
-                        $this->info("Importing movie: {$title}");
-                        if ($this->importMovie($result->id, $movieCategory->id, $apiKey, $portraitPath, $landscapePath)) {
-                            $count++;
-                        }
-                    } else {
-                        $this->info("Skipped (already exists): {$title}");
-                    }
-                }
-                $this->info("Successfully imported {$count} new movies.");
-            } else {
-                $this->error('Failed to retrieve movies from TMDB API.');
+        try {
+            $general = gs(); // Get general settings
+            $apiKey = $general->tmdb_api;
+            
+            $movieCategory = Category::where('name', 'Movie')->first();
+            if (!$movieCategory) {
+                $movieCategory = new Category();
+                $movieCategory->name = 'Movie';
+                $movieCategory->status = 1;
+                $movieCategory->save();
             }
-        }
 
-        // Sync TV Series
-        if ($type === 'tv' || $type === 'all') {
-            $this->info('Fetching trending TV shows...');
-            $url = "https://api.themoviedb.org/3/trending/tv/week?api_key={$apiKey}";
-            $response = CurlRequest::curlContent($url);
-            $data = json_decode($response);
-
-            if (isset($data->results)) {
-                $count = 0;
-                foreach ($data->results as $result) {
-                    if ($count >= $limit) break;
-                    
-                    $title = $result->name ?? $result->original_name;
-                    $exists = Item::where('title', $title)->exists();
-                    
-                    if (!$exists) {
-                        $this->info("Importing TV series: {$title}");
-                        if ($this->importTVShow($result->id, $seriesCategory->id, $apiKey, $portraitPath, $landscapePath)) {
-                            $count++;
-                        }
-                    } else {
-                        $this->info("Skipped (already exists): {$title}");
-                    }
-                }
-                $this->info("Successfully imported {$count} new TV shows.");
-            } else {
-                $this->error('Failed to retrieve TV shows from TMDB API.');
+            $seriesCategory = Category::where('name', 'TV Series')->first();
+            if (!$seriesCategory) {
+                $seriesCategory = new Category();
+                $seriesCategory->name = 'TV Series';
+                $seriesCategory->status = 1;
+                $seriesCategory->save();
             }
-        }
 
-        $this->info('Sync process completed!');
-        return Command::SUCCESS;
+            $portraitPath = base_path('../assets/images/item/portrait/');
+            $landscapePath = base_path('../assets/images/item/landscape/');
+
+            @mkdir($portraitPath, 0755, true);
+            @mkdir($landscapePath, 0755, true);
+
+            if (!$apiKey || $apiKey == '---------------------') {
+                $this->info('TMDB API Key is not configured in General Settings. Using keyless IMDb API (api.imdbapi.dev) for syncing...');
+                $res = $this->handleImdbSync($limit, $type, $movieCategory->id, $seriesCategory->id, $portraitPath, $landscapePath);
+                
+                $this->updateProgress(
+                    $this->progressCurrent,
+                    $this->progressTotal,
+                    $this->progressSuccess,
+                    $this->progressSkipped,
+                    'Sync completed successfully!',
+                    'completed'
+                );
+                return $res;
+            }
+
+            $this->info('Starting TMDB sync...');
+
+            // Sync Movies
+            if ($type === 'movie' || $type === 'all') {
+                $this->info('Fetching trending movies...');
+                $url = "https://api.themoviedb.org/3/trending/movie/week?api_key={$apiKey}";
+                $response = CurlRequest::curlContent($url);
+                $data = json_decode($response);
+
+                if (isset($data->results)) {
+                    $count = 0;
+                    foreach ($data->results as $result) {
+                        if ($count >= $limit) break;
+                        
+                        $this->progressCurrent++;
+                        $title = $result->title ?? $result->original_title;
+                        $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Importing: {$title}");
+
+                        $exists = Item::where('title', $title)->exists();
+                        
+                        if (!$exists) {
+                            $this->info("Importing movie: {$title}");
+                            if ($this->importMovie($result->id, $movieCategory->id, $apiKey, $portraitPath, $landscapePath)) {
+                                $count++;
+                                $this->progressSuccess++;
+                            } else {
+                                $this->progressSkipped++;
+                            }
+                        } else {
+                            $this->progressSkipped++;
+                            $this->info("Skipped (already exists): {$title}");
+                        }
+                        $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Processed: {$title}");
+                    }
+                    $this->info("Successfully imported {$count} new movies.");
+                } else {
+                    $this->error('Failed to retrieve movies from TMDB API.');
+                }
+            }
+
+            // Sync TV Series
+            if ($type === 'tv' || $type === 'all') {
+                $this->info('Fetching trending TV shows...');
+                $url = "https://api.themoviedb.org/3/trending/tv/week?api_key={$apiKey}";
+                $response = CurlRequest::curlContent($url);
+                $data = json_decode($response);
+
+                if (isset($data->results)) {
+                    $count = 0;
+                    foreach ($data->results as $result) {
+                        if ($count >= $limit) break;
+                        
+                        $this->progressCurrent++;
+                        $title = $result->name ?? $result->original_name;
+                        $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Importing: {$title}");
+
+                        $exists = Item::where('title', $title)->exists();
+                        
+                        if (!$exists) {
+                            $this->info("Importing TV series: {$title}");
+                            if ($this->importTVShow($result->id, $seriesCategory->id, $apiKey, $portraitPath, $landscapePath)) {
+                                $count++;
+                                $this->progressSuccess++;
+                            } else {
+                                $this->progressSkipped++;
+                            }
+                        } else {
+                            $this->progressSkipped++;
+                            $this->info("Skipped (already exists): {$title}");
+                        }
+                        $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Processed: {$title}");
+                    }
+                    $this->info("Successfully imported {$count} new TV shows.");
+                } else {
+                    $this->error('Failed to retrieve TV shows from TMDB API.');
+                }
+            }
+
+            $this->info('Sync process completed!');
+            $this->updateProgress(
+                $this->progressCurrent,
+                $this->progressTotal,
+                $this->progressSuccess,
+                $this->progressSkipped,
+                'Sync completed successfully!',
+                'completed'
+            );
+            return Command::SUCCESS;
+        } catch (\Throwable $e) {
+            $this->updateProgress(
+                $this->progressCurrent,
+                $this->progressTotal,
+                $this->progressSuccess,
+                $this->progressSkipped,
+                'Sync failed: ' . $e->getMessage(),
+                'failed',
+                $e->getMessage()
+            );
+            $this->error('Sync failed: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     private function importMovie($tmdbId, $categoryId, $apiKey, $portraitPath, $landscapePath)
@@ -391,17 +452,25 @@ class SyncMovies extends Command
                 foreach ($data->titles as $result) {
                     if ($count >= $limit) break;
                     
-                    $title = $result->primaryTitle ?? $result->originalTitle;
+                    $this->progressCurrent++;
+                    $title = $result->primaryTitle ?? $result->originalTitle ?? 'Unknown';
+                    $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Importing: {$title}");
+
                     $exists = Item::where('title', $title)->exists();
                     
                     if (!$exists) {
                         $this->info("Importing IMDb movie ({$count}/{$limit}): {$title} ({$result->id})");
                         if ($this->importMovieFromImdb($result->id, $movieCategoryId, $portraitPath, $landscapePath)) {
                             $count++;
+                            $this->progressSuccess++;
+                        } else {
+                            $this->progressSkipped++;
                         }
                     } else {
+                        $this->progressSkipped++;
                         $this->info("Skipped (already exists): {$title}");
                     }
+                    $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Processed: {$title}");
                 }
                 
                 if (isset($data->nextPageToken) && !empty($data->nextPageToken)) {
@@ -436,17 +505,25 @@ class SyncMovies extends Command
                 foreach ($data->titles as $result) {
                     if ($count >= $limit) break;
                     
-                    $title = $result->primaryTitle ?? $result->originalTitle;
+                    $this->progressCurrent++;
+                    $title = $result->primaryTitle ?? $result->originalTitle ?? 'Unknown';
+                    $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Importing: {$title}");
+
                     $exists = Item::where('title', $title)->exists();
                     
                     if (!$exists) {
                         $this->info("Importing IMDb TV series ({$count}/{$limit}): {$title} ({$result->id})");
                         if ($this->importTVShowFromImdb($result->id, $seriesCategoryId, $portraitPath, $landscapePath)) {
                             $count++;
+                            $this->progressSuccess++;
+                        } else {
+                            $this->progressSkipped++;
                         }
                     } else {
+                        $this->progressSkipped++;
                         $this->info("Skipped (already exists): {$title}");
                     }
+                    $this->updateProgress($this->progressCurrent, $this->progressTotal, $this->progressSuccess, $this->progressSkipped, "Processed: {$title}");
                 }
                 
                 if (isset($data->nextPageToken) && !empty($data->nextPageToken)) {
@@ -458,7 +535,6 @@ class SyncMovies extends Command
             $this->info("Successfully imported {$count} new TV shows from IMDb.");
         }
 
-        $this->info('IMDb Sync process completed!');
         return Command::SUCCESS;
     }
 
@@ -499,7 +575,7 @@ class SyncMovies extends Command
         $languages = [];
         if (isset($imdbData->spokenLanguages)) {
             foreach ($imdbData->spokenLanguages as $lang) {
-                $languages[] = $lang->name;
+                $languages[] = $lang->name ?? $lang->code ?? 'Unknown';
             }
         }
 
@@ -624,7 +700,7 @@ class SyncMovies extends Command
         $languages = [];
         if (isset($imdbData->spokenLanguages)) {
             foreach ($imdbData->spokenLanguages as $lang) {
-                $languages[] = $lang->name;
+                $languages[] = $lang->name ?? $lang->code ?? 'Unknown';
             }
         }
 
@@ -746,5 +822,19 @@ class SyncMovies extends Command
     {
         parent::error($string, $verbosity);
         \App\Services\AiService::log("[ERROR] " . $string);
+    }
+
+    private function updateProgress($current, $total, $success, $skipped, $itemTitle, $status = 'syncing', $error = null)
+    {
+        cache()->put('imdb_sync_progress', [
+            'status' => $status,
+            'total' => $total,
+            'current' => $current,
+            'success_count' => $success,
+            'skipped_count' => $skipped,
+            'current_item' => $itemTitle,
+            'error_message' => $error,
+            'last_updated' => now()->toDateTimeString()
+        ], 600);
     }
 }

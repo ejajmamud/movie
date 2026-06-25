@@ -117,9 +117,6 @@ class Item extends Model {
     }
 
     public function getWatchLinkAttribute() {
-        if ($this->item_type == Status::SINGLE_ITEM && $this->imdb_id) {
-            return "https://www.playimdb.com/title/" . $this->imdb_id . "/";
-        }
         return route('watch', $this->slug);
     }
 }

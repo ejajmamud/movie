@@ -457,6 +457,7 @@ Route::middleware('admin')->group(function () {
     // AI Sync Manager
     Route::controller('AiSyncController')->prefix('ai-sync')->name('ai.sync.')->group(function () {
         Route::get('/', 'index')->name('index');
+        Route::get('progress', 'progress')->name('progress');
         Route::post('save-settings', 'saveSettings')->name('saveSettings');
         Route::post('trigger-sync', 'triggerSync')->name('triggerSync');
         Route::post('trigger-repair', 'triggerRepair')->name('triggerRepair');

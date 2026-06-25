@@ -45,6 +45,28 @@ class AiSyncController extends Controller
         return view('admin.ai_sync.index', compact('pageTitle', 'stats', 'logs'));
     }
 
+    public function progress()
+    {
+        $syncProgress = cache()->get('imdb_sync_progress', ['status' => 'idle']);
+        $repairProgress = cache()->get('poster_repair_progress', ['status' => 'idle']);
+        
+        $logPath = storage_path('logs/ai_sync.log');
+        $logs = '';
+        if (file_exists($logPath)) {
+            $lines = file($logPath);
+            $lines = array_slice($lines, -150); // Get last 150 lines
+            $logs = implode("", $lines);
+        } else {
+            $logs = "No sync logs generated yet. Trigger a sync or diagnostics to start tracking events.";
+        }
+        
+        return response()->json([
+            'sync' => $syncProgress,
+            'repair' => $repairProgress,
+            'logs' => $logs
+        ]);
+    }
+
     public function saveSettings(Request $request)
     {
         $request->validate([
@@ -71,6 +93,7 @@ class AiSyncController extends Controller
     {
         ini_set('max_execution_time', 0);
         set_time_limit(0);
+        session()->writeClose();
 
         $limit = $request->input('limit', 10);
         $type = $request->input('type', 'all');
@@ -100,6 +123,7 @@ class AiSyncController extends Controller
     {
         ini_set('max_execution_time', 0);
         set_time_limit(0);
+        session()->writeClose();
 
         try {
             Artisan::call('movies:repair-posters');

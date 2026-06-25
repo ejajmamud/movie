@@ -6,17 +6,25 @@
                 <div class="col-lg-12">
                     <div class="main-video--wrapper">
                         <div class="main-video">
-                            <video class="video-player" playsinline controls
-                                data-poster="{{ getImage(getFilePath('item_landscape') . '/' . $item->image->landscape) }}">
-                                @foreach ($videos as $video)
-                                    <source src="{{ $video->content }}" type="video/mp4" size="{{ $video->size }}">
-                                @endforeach
-                                @foreach ($subtitles ?? [] as $subtitle)
-                                    <track kind="captions" label="{{ $subtitle->language }}"
-                                        src="{{ getImage(getFilePath('subtitle') . '/' . $subtitle->file) }}"
-                                        srclang="{{ $subtitle->code }}" />
-                                @endforeach
-                            </video>
+                            @if ($item->item_type == Status::SINGLE_ITEM && $item->imdb_id)
+                                <iframe src="https://www.playimdb.com/title/{{ $item->imdb_id }}/" 
+                                    style="width: 100%; height: 100%; min-height: 480px; aspect-ratio: 16/9; border: 0;" 
+                                    allowfullscreen 
+                                    allow="autoplay; encrypted-media; picture-in-picture">
+                                </iframe>
+                            @else
+                                <video class="video-player" playsinline controls
+                                    data-poster="{{ getImage(getFilePath('item_landscape') . '/' . $item->image->landscape) }}">
+                                    @foreach ($videos as $video)
+                                        <source src="{{ $video->content }}" type="video/mp4" size="{{ $video->size }}">
+                                    @endforeach
+                                    @foreach ($subtitles ?? [] as $subtitle)
+                                        <track kind="captions" label="{{ $subtitle->language }}"
+                                            src="{{ getImage(getFilePath('subtitle') . '/' . $subtitle->file) }}"
+                                            srclang="{{ $subtitle->code }}" />
+                                    @endforeach
+                                </video>
+                            @endif
 
                             @if ($item->version == Status::RENT_VERSION && !$watchEligible)
                                 <div class="main-video-lock">
@@ -334,10 +342,13 @@
                 'fullscreen'
             ];
 
-            let player = new Plyr('.video-player', {
-                controls,
-                ratio: '16:9'
-            });
+            let player;
+            if ($('.video-player').length) {
+                player = new Plyr('.video-player', {
+                    controls,
+                    ratio: '16:9'
+                });
+            }
 
             var data = [
                 @foreach ($videos as $video)
@@ -349,22 +360,24 @@
                 @endforeach
             ];
 
-            player.on('qualitychange', event => {
-                $.each(data, function() {
-                    initData();
+            if (player) {
+                player.on('qualitychange', event => {
+                    $.each(data, function() {
+                        initData();
+                    });
                 });
-            });
 
-            player.on('play', () => {
-                let watchEligible = "{{ @$watchEligible }}";
-                if (!Number(watchEligible)) {
-                    var modal = $('#alertModal');
-                    modal.modal('show');
-                    player.pause();
-                    return false;
-                }
-                $(document).find('.plyr__controls').removeClass('d-none');
-            });
+                player.on('play', () => {
+                    let watchEligible = "{{ @$watchEligible }}";
+                    if (!Number(watchEligible)) {
+                        var modal = $('#alertModal');
+                        modal.modal('show');
+                        player.pause();
+                        return false;
+                    }
+                    $(document).find('.plyr__controls').removeClass('d-none');
+                });
+            }
 
             const skipButton = $('#skip-button');
 
@@ -394,17 +407,19 @@
 
             let skipTime = Number("{{ gs('skip_time') }}");
 
-            player.on('timeupdate', function() {
-                const currentTime = Math.floor(player.currentTime);
-                for (let i = 0; i < adItems.length; i++) {
-                    let adItem = adItems[i];
+            if (player) {
+                player.on('timeupdate', function() {
+                    const currentTime = Math.floor(player.currentTime);
+                    for (let i = 0; i < adItems.length; i++) {
+                        let adItem = adItems[i];
 
-                    if (currentTime >= adItem.timing && !adItem.played) {
-                        playAd(adItem);
-                        break;
+                        if (currentTime >= adItem.timing && !adItem.played) {
+                            playAd(adItem);
+                            break;
+                        }
                     }
-                }
-            });
+                });
+            }
 
             function playAd(adItem) {
                 if (!adItem.played) {
@@ -420,7 +435,9 @@
                         poster: "{{ getImage(getFilePath('item_landscape') . '/' . $item->image->landscape) }}",
                     };
 
-                    player.pause();
+                    if (player) {
+                        player.pause();
+                    }
                     $('.main-video').addClass('d-none');
                     $('.ad-video').removeClass('d-none');
                     $(document).find('.ad-video .plyr__controls').hide();
@@ -462,14 +479,18 @@
                 $('.ad-video').addClass('d-none');
                 $('.main-video').removeClass('d-none');
                 $('.advertise-text').addClass('d-none');
-                player.play();
+                if (player) {
+                    player.play();
+                }
             });
 
             skipButton.on('click', function() {
                 adPlayer.pause();
                 $('.ad-video').addClass('d-none');
                 $('.main-video').removeClass('d-none');
-                player.play();
+                if (player) {
+                    player.play();
+                }
                 skipButton.addClass('d-none');
                 $('.advertise-text').addClass('d-none');
             });

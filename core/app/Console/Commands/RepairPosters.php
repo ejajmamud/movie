@@ -30,37 +30,56 @@ class RepairPosters extends Command
         $this->info('Starting poster files diagnostics and repair...');
 
         $items = Item::all();
+        $total = $items->count();
+        $current = 0;
         $repairedCount = 0;
         $missingCount = 0;
+        $skippedCount = 0;
+
+        $this->updateProgress(0, $total, 0, 0, 'Initializing diagnostics...', 'repairing');
 
         $portraitPath = base_path('../assets/images/item/portrait/');
         $landscapePath = base_path('../assets/images/item/landscape/');
 
-        foreach ($items as $item) {
-            $portraitName = @$item->image->portrait;
-            $landscapeName = @$item->image->landscape;
+        try {
+            foreach ($items as $item) {
+                $current++;
+                $this->updateProgress($current, $total, $repairedCount, $skippedCount, "Checking: {$item->title}", 'repairing');
 
-            $portraitFile = $portraitPath . $portraitName;
-            $landscapeFile = $landscapePath . $landscapeName;
+                $portraitName = @$item->image->portrait;
+                $landscapeName = @$item->image->landscape;
 
-            $p_missing = !$portraitName || !file_exists($portraitFile) || filesize($portraitFile) == 0;
-            $l_missing = !$landscapeName || !file_exists($landscapeFile) || filesize($landscapeFile) == 0;
+                $portraitFile = $portraitPath . $portraitName;
+                $landscapeFile = $landscapePath . $landscapeName;
 
-            if ($p_missing || $l_missing) {
-                $missingCount++;
-                $this->warn("Poster missing for item ID {$item->id}: \"{$item->title}\". Attempting to repair...");
+                $p_missing = !$portraitName || !file_exists($portraitFile) || filesize($portraitFile) == 0;
+                $l_missing = !$landscapeName || !file_exists($landscapeFile) || filesize($landscapeFile) == 0;
 
-                if ($this->repairItemPoster($item, $portraitPath, $landscapePath)) {
-                    $repairedCount++;
+                if ($p_missing || $l_missing) {
+                    $missingCount++;
+                    $this->warn("Poster missing for item ID {$item->id}: \"{$item->title}\". Attempting to repair...");
+
+                    if ($this->repairItemPoster($item, $portraitPath, $landscapePath)) {
+                        $repairedCount++;
+                    } else {
+                        $skippedCount++;
+                    }
+                    
+                    sleep(2);
+                } else {
+                    $skippedCount++;
                 }
-                
-                // Introduce a 2-second sleep to avoid Cloudflare rate limiting (Error 1015)
-                sleep(2);
+                $this->updateProgress($current, $total, $repairedCount, $skippedCount, "Processed: {$item->title}", 'repairing');
             }
-        }
 
-        $this->info("Diagnostics complete. Total missing found: {$missingCount}. Successfully repaired: {$repairedCount}.");
-        return Command::SUCCESS;
+            $this->info("Diagnostics complete. Total missing found: {$missingCount}. Successfully repaired: {$repairedCount}.");
+            $this->updateProgress($current, $total, $repairedCount, $skippedCount, "Diagnostics complete. Repaired: {$repairedCount}, Scanned: {$total}", 'completed');
+            return Command::SUCCESS;
+        } catch (\Throwable $e) {
+            $this->updateProgress($current, $total, $repairedCount, $skippedCount, 'Repair failed: ' . $e->getMessage(), 'failed', $e->getMessage());
+            $this->error('Repair failed: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     private function repairItemPoster($item, $portraitPath, $landscapePath)
@@ -161,5 +180,19 @@ class RepairPosters extends Command
     {
         parent::error($string, $verbosity);
         \App\Services\AiService::log("[ERROR] " . $string);
+    }
+
+    private function updateProgress($current, $total, $success, $skipped, $itemTitle, $status = 'repairing', $error = null)
+    {
+        cache()->put('poster_repair_progress', [
+            'status' => $status,
+            'total' => $total,
+            'current' => $current,
+            'success_count' => $success,
+            'skipped_count' => $skipped,
+            'current_item' => $itemTitle,
+            'error_message' => $error,
+            'last_updated' => now()->toDateTimeString()
+        ], 600);
     }
 }
