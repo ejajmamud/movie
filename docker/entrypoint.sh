@@ -20,8 +20,10 @@ php artisan route:clear
 php artisan view:cache
 
 
-# Create storage symlink
-php artisan storage:link || true
+# Create storage symlink in the web root
+if [ ! -L /var/www/html/storage ] && [ ! -d /var/www/html/storage ]; then
+    ln -s /var/www/html/core/storage/app/public /var/www/html/storage
+fi
 
 # Fix permissions after any new files
 chown -R www-data:www-data /var/www/html/core/storage /var/www/html/core/bootstrap/cache
