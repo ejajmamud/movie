@@ -16,8 +16,9 @@ php artisan migrate --force --no-interaction
 
 # Clear and cache config for production
 php artisan config:cache
-php artisan route:cache
+php artisan route:clear
 php artisan view:cache
+
 
 # Create storage symlink
 php artisan storage:link || true
