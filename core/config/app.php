@@ -1,7 +1,7 @@
 <?php
 use Illuminate\Support\Facades\Facade;
 
-require_once 'timezone.php';
+require_once __DIR__ . '/timezone.php';
 return [
 
     /*
