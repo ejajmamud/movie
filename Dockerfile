@@ -8,23 +8,12 @@ RUN apk add --no-cache \
     zip \
     unzip \
     git \
-    libpng-dev \
-    libjpeg-turbo-dev \
-    libwebp-dev \
-    libxpm-dev \
-    freetype-dev \
-    oniguruma-dev \
-    libxml2-dev \
-    icu-dev \
-    ffmpeg \
-    gmp-dev
+    ffmpeg
 
 # Install PHP extensions
-RUN docker-php-ext-configure gd \
-        --with-freetype \
-        --with-jpeg \
-        --with-webp \
-    && docker-php-ext-install \
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod +x /usr/local/bin/install-php-extensions && \
+    install-php-extensions \
         pdo_mysql \
         mbstring \
         exif \
@@ -36,6 +25,7 @@ RUN docker-php-ext-configure gd \
         opcache \
         ftp \
         gmp
+
 
 
 # Install Composer
