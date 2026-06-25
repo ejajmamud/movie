@@ -1,0 +1,27 @@
+# Ignore user-specific environment configurations
+core/.env
+core/.env.*
+!core/.env.example
+
+# Ignore dependencies
+core/vendor/
+core/node_modules/
+
+# Ignore logs and cache
+core/storage/logs/*.log
+core/storage/framework/cache/data/*
+core/storage/framework/sessions/*
+core/storage/framework/views/*.php
+core/bootstrap/cache/*.php
+
+# Ignore downloaded/seeded movie posters and temporary assets
+assets/images/item/landscape/*.jpg
+assets/images/item/landscape/*.png
+assets/images/item/landscape/*.webp
+assets/images/item/portrait/*.jpg
+assets/images/item/portrait/*.png
+assets/images/item/portrait/*.webp
+
+# OS specific files
+.DS_Store
+Thumbs.db

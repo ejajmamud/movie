@@ -42,7 +42,7 @@ WORKDIR /var/www/html/core
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Set permissions
-RUN chown -R www-data:www-data /var/www/html \
+RUN chown -R www-data:www-data /var/www/html/core/storage /var/www/html/core/bootstrap/cache \
     && chmod -R 755 /var/www/html/core/storage \
     && chmod -R 755 /var/www/html/core/bootstrap/cache
 
